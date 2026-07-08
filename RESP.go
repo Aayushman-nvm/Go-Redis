@@ -2,11 +2,12 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"strconv"
 )
 
-// type for the RESP string we get
+// type for the RESP string we get (prefixes as defined by the Redis Serialization Protocol)
 const (
 	STRING  = '+'
 	ERROR   = '-'
@@ -15,7 +16,7 @@ const (
 	ARRAY   = '*'
 )
 
-// type for the RESP string we get
+// Value represents a parsed RESP value.
 type Value struct {
 	typ   string
 	str   string
@@ -24,17 +25,20 @@ type Value struct {
 	array []Value
 }
 
-// reader variable of type "pointer to bufio reader"
+// Resp wraps a buffered reader and provides methods to parse RESP messages.
 type Resp struct {
 	reader *bufio.Reader
 }
 
-// function that takes in a buffer data holder and returns a pointer to Resp struct since the function returns the address of the reader and to use it, we dereference it (mutating orignal reader without copy)
+// NewResp creates a RESP parser that reads from the provided io.Reader aka our "conn" from main.go.
+// The reader is wrapped in a bufio.Reader for efficient buffered reading.
 func NewResp(rd io.Reader) *Resp {
 	return &Resp{reader: bufio.NewReader(rd)}
 }
 
-// readLine takes a reader, reads through it one byte at a time and increment n. if the length of the word is greater than or equal to 2 and the first element of it is \r, then the line is empty or has come to an end ("\r\n" or "<example>\r\n") hence return line, n and nil or else err if any
+// readLine reads bytes until it encounters the RESP line terminator (\r\n) aka CRLF or "registered nurse"-shoutout to ThePrimeagen :)
+// It returns the line without the trailing \r\n, the number of bytes read,
+// and any error encountered.
 func (r *Resp) readLine() (line []byte, n int, err error) {
 	for {
 		b, err := r.reader.ReadByte()
@@ -45,8 +49,10 @@ func (r *Resp) readLine() (line []byte, n int, err error) {
 		//consturct line
 		line = append(line, b)
 
-		//check if line is empty or has come to an end
-		if len(line) >= 2 && line[len(line)-2] == '\r' {
+		// Stop reading once the line ends with "\r\n".
+		if len(line) >= 2 &&
+			line[len(line)-2] == '\r' &&
+			line[len(line)-1] == '\n' {
 			break
 		}
 	}
@@ -54,7 +60,8 @@ func (r *Resp) readLine() (line []byte, n int, err error) {
 	return line[:len(line)-2], n, nil
 }
 
-// reading integer from the line and returning it as a number
+// readInteger reads a RESP integer (terminated by \r\n)
+// and converts it to a Go int.
 func (r *Resp) readInteger() (x int, n int, err error) {
 	line, n, err := r.readLine()
 	if err != nil {
@@ -81,7 +88,47 @@ func (r *Resp) Read() (Value, error) {
 	case BULK:
 		return r.readBulk()
 	default:
-		fmt.printf("Unknown type: %v", string(_type))
+		fmt.Printf("Unknown type: %v", string(_type))
 		return Value{}, nil
 	}
+}
+
+// Read the array length, then recursively parse each element.
+// Each element is itself a complete RESP value.
+func (r *Resp) readArray() (Value, error) {
+	v := Value{}
+	v.typ = "array"
+	length, _, err := r.readInteger()
+	if err != nil {
+		return v, err
+	}
+
+	v.array = make([]Value, length)
+	for i := 0; i < length; i++ {
+		val, err := r.Read()
+		if err != nil {
+			return v, err
+		}
+
+		v.array[i] = val
+	}
+	return v, nil
+}
+
+func (r *Resp) readBulk() (Value, error) {
+	v := Value{}
+	v.typ = "bulk"
+	length, _, err := r.readInteger()
+	if err != nil {
+		return v, err
+	}
+
+	bulk := make([]byte, length)
+
+	r.reader.Read(bulk)
+	v.bulk = string(bulk)
+
+	// Consume the trailing "\r\n" after the bulk string data.
+	r.readLine()
+	return v, nil
 }

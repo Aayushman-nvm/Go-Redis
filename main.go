@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net"
-	"os"
 )
 
 //test command:- redis-cli -p 6380.
@@ -19,7 +17,7 @@ func main() {
 		fmt.Println(err)
 		return
 	} else {
-		fmt.Printf("Listening on port :%d", PORT)
+		fmt.Printf("Listening on port :%d\n", PORT)
 	}
 
 	fmt.Println("Waiting for connection...")
@@ -35,26 +33,18 @@ func main() {
 	defer conn.Close()
 
 	for {
-		//Our buffer
-		buf := make([]byte, 1024)
+		resp := NewResp(conn)
 
-		//From client connection, we read <buf> bytes at a time
-		//_, err := conn.Read(buf)
-		n, err := conn.Read(buf)
+		value, err := resp.Read()
 		if err != nil {
-			//If we reach EOF (End of file)... good, no problem
-			if err == io.EOF {
-				break
-			}
-			fmt.Println("error reading from client: ", err.Error())
-			os.Exit(1)
+			fmt.Println(err)
+			return
 		}
-		fmt.Printf("Received %q\n", buf[:n])
+		fmt.Println(value)
 
 		//Once read successfully, we send back an "OK" message to the client
 		conn.Write([]byte("+OK\r\n"))
 		fmt.Println("Sent OK")
 	}
 
-	fmt.Println("Hello World")
 }
