@@ -43,8 +43,8 @@ func main() {
 		fmt.Println(value)
 
 		//Once read successfully, we send back an "OK" message to the client
-		conn.Write([]byte("+OK\r\n"))
-		fmt.Println("Sent OK")
+		writer := NewWriter(conn)
+		writer.Write(Value{typ: "string", str: "OK"})
 	}
 
 }
