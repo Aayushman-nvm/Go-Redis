@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strings"
 )
@@ -20,6 +21,29 @@ func main() {
 	} else {
 		fmt.Printf("Listening on port :%d\n", PORT)
 	}
+
+	aof, err := NewAof("database.aof")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer aof.Close()
+
+	aof.Read(func(value Value) {
+		command := strings.ToUpper(value.array[0].bulk)
+		args := value.array[1:]
+
+		handler, ok := Handlers[command]
+		if !ok {
+			fmt.Println("Invalid command: ", command)
+			return
+		}
+
+		handler(args)
+	})
+
+	fmt.Println("SETs:", SETs)
+	fmt.Println("HSETs:", HSETs)
 
 	fmt.Println("Waiting for connection...")
 	//Waiting for a client to connect to our listener
@@ -65,6 +89,12 @@ func main() {
 			fmt.Println("Invalid command: ", command)
 			writer.Write(Value{typ: "string", str: ""})
 			continue
+		}
+
+		if command == "SET" || command == "HSET" {
+			if err := aof.Write(value); err != nil {
+				log.Println(err)
+			}
 		}
 
 		result := handler(args)
